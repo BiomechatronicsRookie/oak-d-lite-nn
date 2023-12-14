@@ -3,6 +3,7 @@
 
 import numpy as np
 import depthai as dai 
+import matplotlib.pyplot as plt
 import cv2
 import time
 import os
@@ -17,6 +18,8 @@ class Camera():
         self.curr_rgb_frame = None
         self.curr_mono_frame = None
         self.curr_disparity_frame = None
+        self.mtx = None
+        self.dst = None
     
     def streamRgb(self, calibrate = False):
         # Create pipeline
@@ -62,6 +65,11 @@ class Camera():
                 # If in calibration mode store images in the image buffer
                 elif val == ord(' ') and calibrate:
                     self.calibration_buffer.append(self.curr_rgb_frame.copy())
+                    print(len(self.calibration_buffer))
+                    if len(self.calibration_buffer) == 20:
+                        cv2.destroyAllWindows()
+                        device.close()
+                        break
 
                 # In any mode, toggle printing fps on the image
                 elif val in [ord('f'), ord('F')]:
@@ -166,19 +174,117 @@ class Camera():
         self.streamRgb(True)       # Stream for calibration
 
         self._runCalibration(cal_path)
-        
+        dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_50)
+        board = cv2.aruco.CharucoBoard((7,5),.025,.0125,dictionary)
+
         for img in self.calibration_buffer:
+            r, t = self.EstimateBoardPose(self.mtx, self.dst, img, board, dictionary)
+            cv2.drawFrameAxes(img, self.mtx, self.dst, r, t, 0.1)
             cv2.imshow("img", img)
             cv2.waitKey(0)
         
         cv2.destroyAllWindows()
         return
     
+    ''' CALIBRATION FUNCTION HELPERS FOR THE OAK D CAMERA'''
+    
     def _runCalibration(self, cal_path):
         # Create charuco board and save it as an image to display
         dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_50)
         board = cv2.aruco.CharucoBoard((7,5),.025,.0125,dictionary)
         board_img = board.generateImage((1920, 1080))
+
         cv2.imwrite(cal_path+'/board.png', board_img)
 
+        allCorners, allIds, imsize = self._getCalibrationKeypoitns(self.calibration_buffer, board)
+        cameraMatrixInit = np.array([[ 1000.,    0., imsize[0]/2.],
+                                    [    0., 1000., imsize[1]/2.],
+                                    [    0.,    0.,           1.]])
+
+        distCoeffsInit = np.zeros((5,1))
+        flags = (cv2.CALIB_USE_INTRINSIC_GUESS + cv2.CALIB_RATIONAL_MODEL + cv2.CALIB_FIX_ASPECT_RATIO)
+
+        (ret, camera_matrix, distortion_coefficients,
+        rotation_vectors, translation_vectors, _, _, errors) = cv2.aruco.calibrateCameraCharucoExtended(
+                        charucoCorners=allCorners,
+                        charucoIds=allIds,
+                        board=board,
+                        imageSize=imsize,
+                        cameraMatrix=cameraMatrixInit,
+                        distCoeffs=distCoeffsInit,
+                        flags=flags,
+                        criteria=(cv2.TERM_CRITERIA_EPS & cv2.TERM_CRITERIA_COUNT, 10000, 1e-9))
+                
+        fig, ax = plt.subplots(figsize = (5, 3) )
+        ax.scatter(np.linspace(1, len(errors) + 1, len(errors)),errors)
+        ax.plot(np.linspace(1, len(errors) + 1, len(errors)),errors)
+        ax.set_xlabel('Image n')
+        ax.set_ylabel('Error (pixels)')
+        fig.tight_layout()
+        plt.show()
+        self.mtx, self.dst = camera_matrix, distortion_coefficients
         return
+    
+    def _getCalibrationKeypoitns(self, files, board):
+
+        """
+        Gets the desired points of interests for each board in frame
+        path: path to calbration video
+        board: board with real parameters
+        ---
+        Corners: Corners detected by the charuco detector
+        Ids: Ids detected by the charuco detector
+        imsize: image shape after reshaping
+        """
+        allCorners = []
+        allIds = []
+        decimator = 0
+        off = 0
+        # DETECTOR INSTANTIATION FOR CHARUCO
+        charuco_detector = cv2.aruco.CharucoDetector(board)
+        for idx, im in enumerate(files):
+            print("=> Processing image {0}".format(idx - off))
+            frame = im
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)              
+            res2 = charuco_detector.detectBoard(gray)
+
+            if res2[1] is not None and res2[2] is not None and len(res2[1])>3 and decimator%1==0:
+                allCorners.append(res2[0])
+                allIds.append(res2[1])
+
+            decimator+=1
+            imsize = gray.shape
+
+        return allCorners, allIds, imsize
+    
+    def EstimateBoardPose(self, mtx, dist, img, board, dict = None):
+        """
+        Estimates the rotation and translation of the origin of the frame of the board
+        mtx: camera coefficient matrix to account for projections
+        dist: camera distortion coefficint matrix to account for lens distortions
+        img: image with board on frame 
+        board: board object with the real parameters of the board used
+        dict (optional):aruco dictionary used during board generation
+        ---
+        r: rotation from camera space to board space
+        t: translation from camera space to board space
+        """
+        # Change if no reprojection error has to be computed
+        val = True
+        # Detect board
+        charuco_detector = cv2.aruco.CharucoDetector(board)
+        #aruco_detector = cv2.aruco.ArucoDetector(dict)
+        res = charuco_detector.detectBoard(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
+        
+        # Detect pose and return rotation matrix and translation
+        _, r, t = cv2.aruco.estimatePoseCharucoBoard(
+                    charucoCorners = res[0],
+                    charucoIds = res[1],
+                    board = board,
+                    cameraMatrix =mtx,
+                    distCoeffs = dist,
+                    rvec = np.eye(3),
+                    tvec = np.zeros(3),
+                    useExtrinsicGuess = False)
+    
+        return r, t
