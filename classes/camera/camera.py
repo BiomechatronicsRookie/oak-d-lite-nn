@@ -34,14 +34,13 @@ class Camera():
 
         # Set link with pc
         cam.setBoardSocket(dai.CameraBoardSocket.CAM_A)
-
         xout_rgb = pipeline.createXLinkOut()
         xout_rgb.setStreamName("RGB")
         cam.video.link(xout_rgb.input)
 
         fps = False
         display_res = ((int(cam.getVideoWidth()/2), int(cam.getVideoHeight()/2)))
-        
+
         with dai.Device(pipeline) as device:
             while True:
                 t1 = time.monotonic()
@@ -51,7 +50,6 @@ class Camera():
                 self.curr_rgb_frame = message.getCvFrame()
                 if t > 0 and fps:
                     cv2.putText(self.curr_rgb_frame, "FPS: {0}".format(1/t), (100, 100), cv2.FONT_HERSHEY_SIMPLEX , 1, (0, 0, 0), 1, cv2.LINE_AA, False) 
-                
                 im_res = cv2.resize(self.curr_rgb_frame.copy(), display_res)
                 cv2.imshow("img", im_res)
                            
@@ -76,6 +74,62 @@ class Camera():
                 elif val in [ord('f'), ord('F')]:
                     fps = not(fps)
         return
+    
+    def streamRgbWithBoardPose(self):
+        # Create pipeline
+        pipeline = dai.Pipeline()
+
+        # Create Color Camera node and set RES and FPS
+        cam = pipeline.createColorCamera()
+        cam.setResolution(self.rgbResolution)
+        cam.setVideoSize(1920,1080)
+        cam.setFps(float(self.fps))
+        cam.setColorOrder(dai.ColorCameraProperties.ColorOrder.RGB)
+
+        # Set link with pc
+        cam.setBoardSocket(dai.CameraBoardSocket.CAM_A)
+        xout_rgb = pipeline.createXLinkOut()
+        xout_rgb.setStreamName("RGB")
+        cam.video.link(xout_rgb.input)
+
+        fps = False
+        display_res = ((int(cam.getVideoWidth()/2), int(cam.getVideoHeight()/2)))
+
+        with dai.Device(pipeline) as device:
+            calibData = device.readCalibration()
+            self.mtx = np.array(calibData.getCameraIntrinsics(dai.CameraBoardSocket.CAM_A, 1920, 1080)).squeeze()
+            self.dst = np.array(calibData.getDistortionCoefficients(dai.CameraBoardSocket.CAM_A))
+            # Define board parameters
+            dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_50)
+            board = cv2.aruco.CharucoBoard((7,5),.025,.0125,dictionary)
+
+            while True:
+                t1 = time.monotonic()
+                queueName = device.getQueueEvent("RGB")
+                t = time.monotonic() - t1
+                message = device.getOutputQueue(queueName, maxSize=1, blocking = False).get()
+                self.curr_rgb_frame = message.getCvFrame()
+                rot, tr = self.EstimateBoardPose(self.curr_rgb_frame, board, dictionary)
+
+                if t > 0 and fps:
+                    cv2.putText(self.curr_rgb_frame, "FPS: {0}".format(1/t), (100, 100), cv2.FONT_HERSHEY_SIMPLEX , 1, (255, 0, 0), 1, cv2.LINE_AA, False)
+                cv2.drawFrameAxes(self.curr_rgb_frame, self.mtx, self.dst, rot, tr, 0.1)
+                im_res = cv2.resize(self.curr_rgb_frame.copy(), display_res)
+                cv2.imshow("img", im_res)
+                           
+                # Use interactive keys from opencv
+                val = cv2.waitKey(1)
+                # Close windows and stop streaming
+                if val in [ord('q'), ord('Q')]:
+                    cv2.destroyAllWindows()
+                    device.close()
+                    break
+
+                # In any mode, toggle printing fps on the image
+                elif val in [ord('f'), ord('F')]:
+                    fps = not(fps)
+        return
+    
     
     def streamMono(self):
         # Create pipeline
@@ -186,13 +240,15 @@ class Camera():
             calibData.setDistortionCoefficients(dai.CameraBoardSocket.CAM_A, self.dst.ravel().tolist())
             m = calibData.getCameraIntrinsics(dai.CameraBoardSocket.CAM_A)
             d = calibData.getDistortionCoefficients(dai.CameraBoardSocket.CAM_A)
+            self.mtx = np.array(m).squeeze()
+            self.dst = np.array(d)
             device.close()
 
         dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_50)
         board = cv2.aruco.CharucoBoard((7,5),.025,.0125,dictionary)
         
         for img in self.calibration_buffer:
-            r, t = self.EstimateBoardPose(np.array(m).squeeze(), np.array(d), img, board, dictionary)
+            r, t = self.EstimateBoardPose(img, board, dictionary)
             cv2.drawFrameAxes(img, self.mtx, self.dst, r, t, 0.1)
             cv2.imshow("img", img)
             cv2.waitKey(0)
@@ -272,7 +328,7 @@ class Camera():
 
         return allCorners, allIds, imsize
     
-    def EstimateBoardPose(self, mtx, dist, img, board, dict = None):
+    def EstimateBoardPose(self, img, board, dict = None):
         """
         Estimates the rotation and translation of the origin of the frame of the board
         mtx: camera coefficient matrix to account for projections
@@ -290,14 +346,14 @@ class Camera():
         charuco_detector = cv2.aruco.CharucoDetector(board)
         #aruco_detector = cv2.aruco.ArucoDetector(dict)
         res = charuco_detector.detectBoard(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
-        
+
         # Detect pose and return rotation matrix and translation
         _, r, t = cv2.aruco.estimatePoseCharucoBoard(
                     charucoCorners = res[0],
                     charucoIds = res[1],
                     board = board,
-                    cameraMatrix =mtx,
-                    distCoeffs = dist,
+                    cameraMatrix = self.mtx,
+                    distCoeffs = self.dst,
                     rvec = np.eye(3),
                     tvec = np.zeros(3),
                     useExtrinsicGuess = False)
