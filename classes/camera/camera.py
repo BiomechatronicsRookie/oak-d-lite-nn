@@ -5,23 +5,27 @@ import numpy as np
 import depthai as dai 
 import cv2
 import time
+import os
 
 class Camera():
     def __init__(self):
         self.rgbResolution = dai.ColorCameraProperties.SensorResolution.THE_1080_P
         self.monoResolution = dai.MonoCameraProperties.SensorResolution.THE_480_P
-        self.fps = 60 # RGB camera cannot run at 60 fps for oak d lite
+        self.fps = 30 # RGB camera cannot run at 60 fps for oak d lite
         self.nn = None
         self.ret = None
+        self.curr_rgb_frame = None
+        self.curr_mono_frame = None
+        self.curr_disparity_frame = None
     
-    def stream_rgb(self):
+    def streamRgb(self, calibrate = False):
         # Create pipeline
         pipeline = dai.Pipeline()
 
         # Create Color Camera node and set RES and FPS
         cam = pipeline.createColorCamera()
         cam.setResolution(self.rgbResolution)
-        cam.setVideoSize(960,540)
+        cam.setVideoSize(1920,1080)
         cam.setFps(float(self.fps))
         cam.setColorOrder(dai.ColorCameraProperties.ColorOrder.RGB)
 
@@ -32,23 +36,39 @@ class Camera():
         xout_rgb.setStreamName("RGB")
         cam.video.link(xout_rgb.input)
 
+        fps = False
+        display_res = ((int(cam.getVideoWidth()/2), int(cam.getVideoHeight()/2)))
         with dai.Device(pipeline) as device:
             while True:
                 t1 = time.monotonic()
                 queueName = device.getQueueEvent("RGB")
                 t = time.monotonic() - t1
                 message = device.getOutputQueue(queueName, maxSize=1, blocking = False).get()
-                imOut = message.getCvFrame()
-                if t > 0:
-                    cv2.putText(imOut, "FPS: {0}".format(1/t), (100, 100), cv2.FONT_HERSHEY_SIMPLEX , 1, (0, 0, 0), 1, cv2.LINE_AA, False) 
-                cv2.imshow("img", imOut)
-                if cv2.waitKey(1) in [ord('q'), ord('Q')]:
+                self.curr_rgb_frame = message.getCvFrame()
+                if t > 0 and fps:
+                    cv2.putText(self.curr_rgb_frame, "FPS: {0}".format(1/t), (100, 100), cv2.FONT_HERSHEY_SIMPLEX , 1, (0, 0, 0), 1, cv2.LINE_AA, False) 
+                
+                im_res = cv2.resize(self.curr_rgb_frame.copy(), display_res)
+                cv2.imshow("img", im_res)
+                           
+                # Use interactive keys from opencv
+                val = cv2.waitKey(1)
+                # Close windows and stop streaming
+                if val in [ord('q'), ord('Q')]:
                     cv2.destroyAllWindows()
                     device.close()
                     break
+                
+                # If in calibration mode store images in the image buffer
+                elif val == ord(' ') and calibrate:
+                    self.calibration_buffer.append(self.curr_rgb_frame.copy())
+
+                # In any mode, toggle printing fps on the image
+                elif val in [ord('f'), ord('F')]:
+                    fps = not(fps)
         return
     
-    def stream_mono(self):
+    def streamMono(self):
         # Create pipeline
         pipeline = dai.Pipeline()
 
@@ -64,23 +84,28 @@ class Camera():
         xout_mono.setStreamName("mono")
         mono.out.link(xout_mono.input)
 
+        fps = False
+
         with dai.Device(pipeline) as device:
             while True:
                 t1 = time.monotonic()
                 queueName = device.getQueueEvent("mono")
                 t = time.monotonic() - t1
                 message = device.getOutputQueue(queueName, maxSize=1, blocking = False).get()
-                imOut = message.getCvFrame()
-                if t > 0:
-                    cv2.putText(imOut, "FPS: {0}".format(int(1/t)), (100, 100), cv2.FONT_HERSHEY_SIMPLEX , 1, (0, 0, 0), 1, cv2.LINE_AA, False) 
-                cv2.imshow("img", imOut)
-                if cv2.waitKey(1) in [ord('q'), ord('Q')]:
+                self.curr_mono_frame = message.getCvFrame()
+                if t > 0 and fps:
+                    cv2.putText(self.curr_mono_frame, "FPS: {0}".format(int(1/t)), (100, 100), cv2.FONT_HERSHEY_SIMPLEX , 1, (0, 0, 0), 1, cv2.LINE_AA, False) 
+                cv2.imshow("img", self.curr_mono_frame)
+                val = cv2.waitKey(1)
+                if val in [ord('q'), ord('Q')]:
                     cv2.destroyAllWindows()
                     device.close()
                     break
+                elif val in [ord('f'), ord('F')]:
+                    fps = not(fps)
         return
 
-    def stream_disparity(self):
+    def streamDisparity(self):
         # Create pipeline
         pipeline = dai.Pipeline()
 
@@ -122,7 +147,7 @@ class Camera():
 
             while True:
                 inDisparity = q.get()  # blocking call, will wait until a new data has arrived
-                frame = inDisparity.getFrame()
+                self.curr_disparity_frame = inDisparity.getFrame()
                 # Normalization for better visualization
                 frame = (frame * (255 / depth.initialConfig.getMaxDisparity())).astype(np.uint8)
 
@@ -131,4 +156,29 @@ class Camera():
                     cv2.destroyAllWindows()
                     device.close()
                     break
+        return
+    
+    
+    def calibrateOakRgb(self): # Intended to be called when for sure calibration is wanted
+        cal_path = os.path.dirname(os.path.realpath(__file__))              # Get subdirectory for the camera class to store params there
+        self.calibration_buffer = []
+
+        self.streamRgb(True)       # Stream for calibration
+
+        self._runCalibration(cal_path)
+        
+        for img in self.calibration_buffer:
+            cv2.imshow("img", img)
+            cv2.waitKey(0)
+        
+        cv2.destroyAllWindows()
+        return
+    
+    def _runCalibration(self, cal_path):
+        # Create charuco board and save it as an image to display
+        dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_50)
+        board = cv2.aruco.CharucoBoard((7,5),.025,.0125,dictionary)
+        board_img = board.generateImage((1920, 1080))
+        cv2.imwrite(cal_path+'/board.png', board_img)
+
         return
