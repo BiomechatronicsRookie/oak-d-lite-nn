@@ -41,6 +41,7 @@ class Camera():
 
         fps = False
         display_res = ((int(cam.getVideoWidth()/2), int(cam.getVideoHeight()/2)))
+        
         with dai.Device(pipeline) as device:
             while True:
                 t1 = time.monotonic()
@@ -65,8 +66,8 @@ class Camera():
                 # If in calibration mode store images in the image buffer
                 elif val == ord(' ') and calibrate:
                     self.calibration_buffer.append(self.curr_rgb_frame.copy())
-                    print(len(self.calibration_buffer))
-                    if len(self.calibration_buffer) == 20:
+                    print('Img {0} of 15'.format(len(self.calibration_buffer)))
+                    if len(self.calibration_buffer) == 15:
                         cv2.destroyAllWindows()
                         device.close()
                         break
@@ -174,16 +175,30 @@ class Camera():
         self.streamRgb(True)       # Stream for calibration
 
         self._runCalibration(cal_path)
+        # Override calibration parameters inside the camera:
+        pipeline = dai.Pipeline()
+
+        # Create Color Camera node and set RES and FPS
+        cam = pipeline.createColorCamera()
+        with dai.Device(pipeline) as device:
+            calibData = device.readCalibration()
+            calibData.setCameraIntrinsics(dai.CameraBoardSocket.CAM_A, self.mtx.tolist(), 1920, 1080)
+            calibData.setDistortionCoefficients(dai.CameraBoardSocket.CAM_A, self.dst.ravel().tolist())
+            m = calibData.getCameraIntrinsics(dai.CameraBoardSocket.CAM_A)
+            d = calibData.getDistortionCoefficients(dai.CameraBoardSocket.CAM_A)
+            device.close()
+
         dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_50)
         board = cv2.aruco.CharucoBoard((7,5),.025,.0125,dictionary)
-
+        
         for img in self.calibration_buffer:
-            r, t = self.EstimateBoardPose(self.mtx, self.dst, img, board, dictionary)
+            r, t = self.EstimateBoardPose(np.array(m).squeeze(), np.array(d), img, board, dictionary)
             cv2.drawFrameAxes(img, self.mtx, self.dst, r, t, 0.1)
             cv2.imshow("img", img)
             cv2.waitKey(0)
-        
+
         cv2.destroyAllWindows()
+
         return
     
     ''' CALIBRATION FUNCTION HELPERS FOR THE OAK D CAMERA'''
