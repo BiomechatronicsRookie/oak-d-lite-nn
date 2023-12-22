@@ -210,7 +210,7 @@ class Camera():
                 message_r = device.getOutputQueue(right_queue, maxSize=1, blocking = False).get()
                 l_frame = message_l.getCvFrame()
                 r_frame = message_r.getCvFrame()
-                self.curr_mono_frame = np.hstack((l_frame, r_frame))
+                self.curr_mono_frame = (l_frame/2 + r_frame/2)/255
 
                 if t > 0 and fps:
                     cv2.putText(self.curr_mono_frame, "FPS: {0}".format(int(1/t)), (100, 100), cv2.FONT_HERSHEY_SIMPLEX , 1, (0, 0, 0), 1, cv2.LINE_AA, False) 
