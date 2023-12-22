@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import cv2
 import time
 import os
+import warnings
 
 class Camera():
     def __init__(self):
@@ -131,7 +132,7 @@ class Camera():
         return
     
     
-    def streamMono(self):
+    def streamMono(self, side = None):
         # Create pipeline
         pipeline = dai.Pipeline()
 
@@ -141,7 +142,12 @@ class Camera():
         mono.setFps(float(self.fps))
 
         # Set link with pc
-        mono.setBoardSocket(dai.CameraBoardSocket.LEFT)
+        if side == 'LEFT' or side == None:
+            mono.setBoardSocket(dai.CameraBoardSocket.LEFT)
+            if not side:
+                warnings.warn("No camera was selected. Using mono LEFT camera...")
+        if side == 'RIGHT':
+            mono.setBoardSocket(dai.CameraBoardSocket.RIGHT)
 
         xout_mono = pipeline.createXLinkOut()
         xout_mono.setStreamName("mono")
@@ -156,6 +162,55 @@ class Camera():
                 t = time.monotonic() - t1
                 message = device.getOutputQueue(queueName, maxSize=1, blocking = False).get()
                 self.curr_mono_frame = message.getCvFrame()
+                if t > 0 and fps:
+                    cv2.putText(self.curr_mono_frame, "FPS: {0}".format(int(1/t)), (100, 100), cv2.FONT_HERSHEY_SIMPLEX , 1, (0, 0, 0), 1, cv2.LINE_AA, False) 
+                cv2.imshow("img", self.curr_mono_frame)
+                val = cv2.waitKey(1)
+                if val in [ord('q'), ord('Q')]:
+                    cv2.destroyAllWindows()
+                    device.close()
+                    break
+                elif val in [ord('f'), ord('F')]:
+                    fps = not(fps)
+        return
+    
+    def stream2Mono(self):
+        # Create pipeline
+        pipeline = dai.Pipeline()
+
+        # Create Color Camera node and set RES and FPS
+        mono_r = pipeline.createMonoCamera()
+        mono_r.setResolution(self.monoResolution)
+        mono_r.setFps(float(self.fps))
+        mono_l = pipeline.createMonoCamera()
+        mono_l.setResolution(self.monoResolution)
+        mono_l.setFps(float(self.fps))
+
+        # Set link with pc
+        mono_r.setBoardSocket(dai.CameraBoardSocket.RIGHT)
+        mono_l.setBoardSocket(dai.CameraBoardSocket.LEFT)
+
+        xout_mono_r = pipeline.createXLinkOut()
+        xout_mono_r.setStreamName("mono_r")
+        xout_mono_l = pipeline.createXLinkOut()
+        xout_mono_l.setStreamName("mono_l")
+        mono_r.out.link(xout_mono_r.input)
+        mono_l.out.link(xout_mono_l.input)
+
+        fps = False
+
+        with dai.Device(pipeline) as device:
+            while True:
+                t1 = time.monotonic()
+                left_queue = device.getQueueEvent("mono_l")
+                right_queue = device.getQueueEvent("mono_r")
+                t = time.monotonic() - t1
+                message_l = device.getOutputQueue(left_queue, maxSize=1, blocking = False).get()
+                message_r = device.getOutputQueue(right_queue, maxSize=1, blocking = False).get()
+                l_frame = message_l.getCvFrame()
+                r_frame = message_r.getCvFrame()
+                self.curr_mono_frame = np.hstack((l_frame, r_frame))
+
                 if t > 0 and fps:
                     cv2.putText(self.curr_mono_frame, "FPS: {0}".format(int(1/t)), (100, 100), cv2.FONT_HERSHEY_SIMPLEX , 1, (0, 0, 0), 1, cv2.LINE_AA, False) 
                 cv2.imshow("img", self.curr_mono_frame)
