@@ -13,7 +13,8 @@ class Camera():
     def __init__(self):
         self.rgbResolution = dai.ColorCameraProperties.SensorResolution.THE_1080_P
         self.monoResolution = dai.MonoCameraProperties.SensorResolution.THE_480_P
-        self.fps = 30 # RGB camera cannot run at 60 fps for oak d lite
+        self.rgb_fps = 30 # RGB camera cannot run at 60 fps for oak d lite
+        self.mono_fps = 60 # RGB camera cannot run at 60 fps for oak d lite
         self.nn = None
         self.ret = None
         self.curr_rgb_frame = None
@@ -30,7 +31,7 @@ class Camera():
         cam = pipeline.createColorCamera()
         cam.setResolution(self.rgbResolution)
         cam.setVideoSize(1920,1080)
-        cam.setFps(float(self.fps))
+        cam.setFps(float(self.rgb_fps))
         cam.setColorOrder(dai.ColorCameraProperties.ColorOrder.RGB)
 
         # Set link with pc
@@ -84,7 +85,7 @@ class Camera():
         cam = pipeline.createColorCamera()
         cam.setResolution(self.rgbResolution)
         cam.setVideoSize(1920,1080)
-        cam.setFps(float(self.fps))
+        cam.setFps(float(self.rgb_fps))
         cam.setColorOrder(dai.ColorCameraProperties.ColorOrder.RGB)
 
         # Set link with pc
@@ -139,7 +140,7 @@ class Camera():
         # Create Color Camera node and set RES and FPS
         mono = pipeline.createMonoCamera()
         mono.setResolution(self.monoResolution)
-        mono.setFps(float(self.fps))
+        mono.setFps(float(self.mono_fps))
 
         # Set link with pc
         if side == 'LEFT' or side == None:
@@ -181,10 +182,10 @@ class Camera():
         # Create Color Camera node and set RES and FPS
         mono_r = pipeline.createMonoCamera()
         mono_r.setResolution(self.monoResolution)
-        mono_r.setFps(float(self.fps))
+        mono_r.setFps(float(self.mono_fps))
         mono_l = pipeline.createMonoCamera()
         mono_l.setResolution(self.monoResolution)
-        mono_l.setFps(float(self.fps))
+        mono_l.setFps(float(self.mono_fps))
 
         # Set link with pc
         mono_r.setBoardSocket(dai.CameraBoardSocket.RIGHT)
