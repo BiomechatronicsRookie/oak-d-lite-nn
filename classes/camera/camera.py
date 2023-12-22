@@ -175,7 +175,7 @@ class Camera():
                     fps = not(fps)
         return
     
-    def stream2Mono(self):
+    def stream2Mono(self, calibrate = False):
         # Create pipeline
         pipeline = dai.Pipeline()
 
@@ -220,8 +220,17 @@ class Camera():
                     cv2.destroyAllWindows()
                     device.close()
                     break
+
                 elif val in [ord('f'), ord('F')]:
                     fps = not(fps)
+
+                elif val == ord(' ') and calibrate:
+                    self.calibration_buffer.append([l_frame.copy(), r_frame.copy()])
+                    print('Imgs {0} / {0} of 15'.format(len(self.calibration_buffer)))
+                    if len(self.calibration_buffer) == 15:
+                        cv2.destroyAllWindows()
+                        device.close()
+                        break
         return
 
     def streamDisparity(self):
@@ -313,6 +322,20 @@ class Camera():
 
         return
     
+    def calibrateOak2Mono(self): # Intended to be called when for sure calibration is wanted
+        cal_path = os.path.dirname(os.path.realpath(__file__))              # Get subdirectory for the camera class to store params there
+        self.calibration_buffer = []
+
+        self.stream2Mono(True)       # Stream for calibration
+        for lists in self.calibration_buffer:
+                cv2.imshow("img", np.hstack((lists[0], lists[1])))
+                cv2.waitKey(0)
+
+        cv2.destroyAllWindows()
+        
+        return
+    
+    
     ''' CALIBRATION FUNCTION HELPERS FOR THE OAK D CAMERA'''
     
     def _runCalibration(self, cal_path):
@@ -321,7 +344,8 @@ class Camera():
         board = cv2.aruco.CharucoBoard((7,5),.025,.0125,dictionary)
         board_img = board.generateImage((1920, 1080))
 
-        cv2.imwrite(cal_path+'/board.png', board_img)
+        if not os.path.isfile(cal_path+'/board.png'):
+            cv2.imwrite(cal_path+'/board.png', board_img)
 
         allCorners, allIds, imsize = self._getCalibrationKeypoitns(self.calibration_buffer, board)
         cameraMatrixInit = np.array([[ 1000.,    0., imsize[0]/2.],
