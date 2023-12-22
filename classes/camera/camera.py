@@ -189,9 +189,9 @@ class Camera():
         # Create a node that will produce the depth map (using disparity output as it's easier to visualize depth this way)
         depth.setDefaultProfilePreset(dai.node.StereoDepth.PresetMode.HIGH_ACCURACY)
         # Options: MEDIAN_OFF, KERNEL_3x3, KERNEL_5x5, KERNEL_7x7 (default)
-        depth.initialConfig.setMedianFilter(dai.MedianFilter.KERNEL_3x3)
+        depth.initialConfig.setMedianFilter(dai.MedianFilter.KERNEL_5x5)
         config = depth.initialConfig.get()
-        config.postProcessing.spatialFilter.enable = True
+        config.postProcessing.spatialFilter.enable = False
         config.postProcessing.spatialFilter.holeFillingRadius = 18
         config.postProcessing.spatialFilter.alpha = 0.15
         config.postProcessing.spatialFilter.numIterations = 1
@@ -212,9 +212,9 @@ class Camera():
                 inDisparity = q.get()  # blocking call, will wait until a new data has arrived
                 self.curr_disparity_frame = inDisparity.getFrame()
                 # Normalization for better visualization
-                frame = (frame * (255 / depth.initialConfig.getMaxDisparity())).astype(np.uint8)
+                self.curr_disparity_frame  = (self.curr_disparity_frame  * (255 / depth.initialConfig.getMaxDisparity())).astype(np.uint8)
 
-                cv2.imshow("disparity", frame)
+                cv2.imshow("disparity", self.curr_disparity_frame )
                 if cv2.waitKey(1) == ord('q'):
                     cv2.destroyAllWindows()
                     device.close()
