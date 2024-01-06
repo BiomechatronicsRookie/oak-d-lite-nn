@@ -225,9 +225,10 @@ class Camera():
                     fps = not(fps)
 
                 elif val == ord(' ') and calibrate:
-                    self.calibration_buffer.append([l_frame.copy(), r_frame.copy()])
-                    print('Imgs {0} / {0} of 15'.format(len(self.calibration_buffer)))
-                    if len(self.calibration_buffer) == 15:
+                    self.calibration_buffer_left.append(l_frame.copy())
+                    self.calibration_buffer_right.append(r_frame.copy())
+                    print('Imgs {0} of 15'.format(len(self.calibration_buffer_left)))
+                    if len(self.calibration_buffer_left) == 15:
                         cv2.destroyAllWindows()
                         device.close()
                         break
@@ -293,7 +294,7 @@ class Camera():
 
         self.streamRgb(True)       # Stream for calibration
 
-        self._runCalibration(cal_path)
+        mtx, dst = self._runCalibration(cal_path)
         # Override calibration parameters inside the camera:
         pipeline = dai.Pipeline()
 
@@ -301,19 +302,15 @@ class Camera():
         cam = pipeline.createColorCamera()
         with dai.Device(pipeline) as device:
             calibData = device.readCalibration()
-            calibData.setCameraIntrinsics(dai.CameraBoardSocket.CAM_A, self.mtx.tolist(), 1920, 1080)
-            calibData.setDistortionCoefficients(dai.CameraBoardSocket.CAM_A, self.dst.ravel().tolist())
-            m = calibData.getCameraIntrinsics(dai.CameraBoardSocket.CAM_A)
-            d = calibData.getDistortionCoefficients(dai.CameraBoardSocket.CAM_A)
-            self.mtx = np.array(m).squeeze()
-            self.dst = np.array(d)
+            calibData.setCameraIntrinsics(dai.CameraBoardSocket.CAM_A, mtx.tolist(), 1920, 1080)
+            calibData.setDistortionCoefficients(dai.CameraBoardSocket.CAM_A, dst.ravel().tolist())
             device.close()
 
         dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_50)
         board = cv2.aruco.CharucoBoard((7,5),.025,.0125,dictionary)
         
         for img in self.calibration_buffer:
-            r, t = self.EstimateBoardPose(img, board, dictionary)
+            r, t = self.EstimateBoardPose(img, board, self.mtx, self.dst, dictionary)
             cv2.drawFrameAxes(img, self.mtx, self.dst, r, t, 0.1)
             cv2.imshow("img", img)
             cv2.waitKey(0)
@@ -324,11 +321,32 @@ class Camera():
     
     def calibrateOak2Mono(self): # Intended to be called when for sure calibration is wanted
         cal_path = os.path.dirname(os.path.realpath(__file__))              # Get subdirectory for the camera class to store params there
-        self.calibration_buffer = []
+        self.calibration_buffer_left = []
+        self.calibration_buffer_right = []
+        buff = [self.calibration_buffer_left, self.calibration_buffer_right]
+        sockets = [dai.CameraBoardSocket.CAM_B, dai.CameraBoardSocket.CAM_C]        # Left, Right
 
         self.stream2Mono(True)       # Stream for calibration
-        for lists in self.calibration_buffer:
-                cv2.imshow("img", np.hstack((lists[0], lists[1])))
+
+        dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_50)
+        board = cv2.aruco.CharucoBoard((7,5),.025,.0125,dictionary)
+
+        for i in range(0,2):
+            self.calibration_buffer = buff[i]
+            mtx, dst = self._runCalibration(cal_path)
+            # Override calibration parameters inside the camera:
+            pipeline = dai.Pipeline()
+
+            with dai.Device(pipeline) as device:
+                calibData = device.readCalibration()
+                calibData.setCameraIntrinsics(sockets[i], mtx.tolist(), 640, 480)
+                calibData.setDistortionCoefficients(sockets[i], dst.ravel().tolist())
+                device.close()
+
+            for img in self.calibration_buffer:
+                r, t = self.EstimateBoardPose(img, board, self.mtx, self.dst, dictionary)
+                cv2.drawFrameAxes(img, mtx, dst, r, t, 0.1)
+                cv2.imshow("img", img)
                 cv2.waitKey(0)
 
         cv2.destroyAllWindows()
@@ -373,8 +391,8 @@ class Camera():
         ax.set_ylabel('Error (pixels)')
         fig.tight_layout()
         plt.show()
-        self.mtx, self.dst = camera_matrix, distortion_coefficients
-        return
+        
+        return camera_matrix, distortion_coefficients
     
     def _getCalibrationKeypoitns(self, files, board):
 
@@ -396,7 +414,10 @@ class Camera():
         for idx, im in enumerate(files):
             print("=> Processing image {0}".format(idx - off))
             frame = im
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)              
+            if frame.ndim > 2:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)    
+            else:
+                gray = frame             
             res2 = charuco_detector.detectBoard(gray)
 
             if res2[1] is not None and res2[2] is not None and len(res2[1])>3 and decimator%1==0:
@@ -408,7 +429,7 @@ class Camera():
 
         return allCorners, allIds, imsize
     
-    def EstimateBoardPose(self, img, board, dict = None):
+    def EstimateBoardPose(self, img, board, m, d, dict = None):
         """
         Estimates the rotation and translation of the origin of the frame of the board
         mtx: camera coefficient matrix to account for projections
@@ -425,15 +446,19 @@ class Camera():
         # Detect board
         charuco_detector = cv2.aruco.CharucoDetector(board)
         #aruco_detector = cv2.aruco.ArucoDetector(dict)
-        res = charuco_detector.detectBoard(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
+        if img.ndim > 2:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img
+        res = charuco_detector.detectBoard(gray)
 
         # Detect pose and return rotation matrix and translation
         _, r, t = cv2.aruco.estimatePoseCharucoBoard(
                     charucoCorners = res[0],
                     charucoIds = res[1],
                     board = board,
-                    cameraMatrix = self.mtx,
-                    distCoeffs = self.dst,
+                    cameraMatrix = m,
+                    distCoeffs = d,
                     rvec = np.eye(3),
                     tvec = np.zeros(3),
                     useExtrinsicGuess = False)
