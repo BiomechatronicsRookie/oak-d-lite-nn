@@ -344,7 +344,7 @@ class Camera():
                 device.close()
 
             for img in self.calibration_buffer:
-                r, t = self.EstimateBoardPose(img, board, self.mtx, self.dst, dictionary)
+                r, t = self.EstimateBoardPose(img, board, mtx, dst, dictionary)
                 cv2.drawFrameAxes(img, mtx, dst, r, t, 0.1)
                 cv2.imshow("img", img)
                 cv2.waitKey(0)
