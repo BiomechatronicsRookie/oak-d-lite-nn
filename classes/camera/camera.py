@@ -41,6 +41,7 @@ class Camera():
         cam.video.link(xout_rgb.input)
 
         fps = False
+        self.recording_rgb = False
         display_res = ((int(cam.getVideoWidth()/2), int(cam.getVideoHeight()/2)))
 
         with dai.Device(pipeline) as device:
@@ -50,6 +51,8 @@ class Camera():
                 t = time.monotonic() - t1
                 message = device.getOutputQueue(queueName, maxSize=1, blocking = False).get()
                 self.curr_rgb_frame = message.getCvFrame()
+                if self.recording_rgb:
+                    output.write(self.curr_rgb_frame)
                 if t > 0 and fps:
                     cv2.putText(self.curr_rgb_frame, "FPS: {0}".format(1/t), (100, 100), cv2.FONT_HERSHEY_SIMPLEX , 1, (0, 0, 0), 1, cv2.LINE_AA, False) 
                 im_res = cv2.resize(self.curr_rgb_frame.copy(), display_res)
@@ -75,8 +78,20 @@ class Camera():
                 # In any mode, toggle printing fps on the image
                 elif val in [ord('f'), ord('F')]:
                     fps = not(fps)
+                
+                elif val in [ord('r'), ord('R')]:
+                    if self.recording_rgb:
+                        self.recording_rgb = False
+                        output.release() 
+                    
+                    else:
+                        if self.recording_rgb == False:
+                            video_dir = os.getcwd() + '\\data\\videos\\'
+                            video_name = '{0}.mp4'.format(str(len(os.listdir(video_dir))).zfill(4))
+                            output = cv2.VideoWriter(video_dir + video_name, cv2.VideoWriter_fourcc(*'mp4v'), self.rgb_fps, cam.getVideoSize())
+                            self.recording_rgb = True  
         return
-    
+
     def streamRgbWithBoardPose(self):
         # Create pipeline
         pipeline = dai.Pipeline()
