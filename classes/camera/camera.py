@@ -62,6 +62,9 @@ class Camera():
                 val = cv2.waitKey(1)
                 # Close windows and stop streaming
                 if val in [ord('q'), ord('Q')]:
+                    if self.recording_rgb:
+                        self.recording_rgb = False
+                        output.release()
                     cv2.destroyAllWindows()
                     device.close()
                     break
