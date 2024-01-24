@@ -22,6 +22,57 @@ class Camera():
         self.curr_disparity_frame = None
         self.mtx = None
         self.dst = None
+
+        self._create_pipeline()
+        self.device = dai.Device(self.pipeline)
+
+
+    def _create_pipeline(self):
+        self.pipeline = dai.Pipeline()
+
+        # Create RGB camera and config
+        self.rbg_cam = self.pipeline.createColorCamera()
+        self.rbg_cam.setResolution(self.rgbResolution)
+        self.rbg_cam.setVideoSize(1920,1080)
+        self.rbg_cam.setFps(float(self.rgb_fps))
+        self.rbg_cam.setColorOrder(dai.ColorCameraProperties.ColorOrder.RGB)
+        self.rbg_cam.setBoardSocket(dai.CameraBoardSocket.CAM_A)
+            # Create XLinkOut
+        XOutRgb = self.pipeline.createXLinkOut()
+        XOutRgb.setStreamName("rgb")
+        self.rbg_cam.video.link(XOutRgb.input)
+
+        # Create 
+        self.mono = self.pipeline.createMonoCamera()
+        self.mono.setResolution(self.monoResolution)
+        self.mono.setFps(float(self.mono_fps))
+        self.mono.setBoardSocket(dai.CameraBoardSocket.LEFT)
+            # Create XLinkOut
+        XOutMono = self.pipeline.createXLinkOut()
+        XOutMono.setStreamName("mono")
+        self.mono.out.link(XOutMono.input)
+
+    def stream(self):
+
+        display_res = ((int(self.rbg_cam.getVideoWidth()/2), int(self.rbg_cam.getVideoHeight()/2)))
+
+        while True:
+            queueName = self.device.getQueueEvent("mono")
+            message = self.device.getOutputQueue(queueName, maxSize=1, blocking = False).get()
+            self.curr_rgb_frame = message.getCvFrame()
+            im_res = cv2.resize(self.curr_rgb_frame.copy(), display_res)
+            cv2.imshow("img", im_res)
+            # Use interactive keys from opencv
+            val = cv2.waitKey(1)
+            # Close windows and stop streaming
+            if val in [ord('q'), ord('Q')]:
+                cv2.destroyAllWindows()
+                self.device.close()
+                break
+
+        return
+    
+    
     
     def streamRgb(self, calibrate = False):
         # Create pipeline
@@ -482,3 +533,7 @@ class Camera():
                     useExtrinsicGuess = False)
     
         return r, t
+    
+if __name__ == '__main__':
+        oak = Camera()
+        oak.stream()
