@@ -9,7 +9,7 @@ import time
 import os
 import warnings
 
-## TODO: Add config file for automatic setting of stream features
+## TODO: Add config file for automatic setting of stream features 
 class Camera():
     def __init__(self):
         self.rgbResolution = dai.ColorCameraProperties.SensorResolution.THE_1080_P
@@ -68,9 +68,9 @@ class Camera():
         if mode == 'rgb':
             display_res = ((int(self.rbg_cam.getVideoWidth()/2), int(self.rbg_cam.getVideoHeight()/2)))
         elif mode == 'mono':
-            display_res = ((int(self.mono.getResolutionWidth()/2), int(self.mono.getResolutionHeight()/2)))
+            display_res = ((int(self.mono.getResolutionWidth()), int(self.mono.getResolutionHeight())))
         elif mode == 'mono_right':
-            display_res = ((int(self.mono_right.getResolutionWidth()/2), int(self.mono_right.getResolutionHeight()/2)))
+            display_res = ((int(self.mono_right.getResolutionWidth()), int(self.mono_right.getResolutionHeight())))
 
         while True:
             queueName = self.device.getQueueEvent("{0}".format(mode))
@@ -97,11 +97,11 @@ class Camera():
             self.mtx = np.array(calibData.getCameraIntrinsics(dai.CameraBoardSocket.CAM_A, 1920, 1080)).squeeze()
             self.dst = np.array(calibData.getDistortionCoefficients(dai.CameraBoardSocket.CAM_A))
         elif mode == 'mono':
-            display_res = ((int(self.mono.getResolutionWidth()/2), int(self.mono.getResolutionHeight()/2)))
+            display_res = ((int(self.mono.getResolutionWidth()/2), int(self.mono.getResolutionHeight())))
             self.mtx = np.array(calibData.getCameraIntrinsics(dai.CameraBoardSocket.CAM_B, 640, 480)).squeeze()
             self.dst = np.array(calibData.getDistortionCoefficients(dai.CameraBoardSocket.CAM_B))
         elif mode == 'mono_right':
-            display_res = ((int(self.mono_right.getResolutionWidth()/2), int(self.mono_right.getResolutionHeight()/2)))
+            display_res = ((int(self.mono_right.getResolutionWidth()), int(self.mono_right.getResolutionHeight())))
             self.mtx = np.array(calibData.getCameraIntrinsics(dai.CameraBoardSocket.CAM_C, 640, 480)).squeeze()
             self.dst = np.array(calibData.getDistortionCoefficients(dai.CameraBoardSocket.CAM_C))
         
