@@ -83,7 +83,6 @@ class Camera():
             # Close windows and stop streaming
             if val in [ord('q'), ord('Q')]:
                 cv2.destroyAllWindows()
-                self.device.close()
                 break
         return
     
@@ -124,7 +123,6 @@ class Camera():
             # Close windows and stop streaming
             if val in [ord('q'), ord('Q')]:
                 cv2.destroyAllWindows()
-                self.device.close()
                 break
         return
         
@@ -142,7 +140,6 @@ class Camera():
             val = cv2.waitKey(1)
             if val in [ord('q'), ord('Q')]:
                 cv2.destroyAllWindows()
-                self.device.close()
                 break
 
             elif val in [ord('f'), ord('F')]:
@@ -198,7 +195,6 @@ class Camera():
                 cv2.imshow("disparity", self.curr_disparity_frame )
                 if cv2.waitKey(1) == ord('q'):
                     cv2.destroyAllWindows()
-                    device.close()
                     break
         return
        
