@@ -164,3 +164,7 @@ cython_debug/
 *.gif
 *.npz
 data/
+
+
+# VSCode files
+.vscode
